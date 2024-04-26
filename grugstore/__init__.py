@@ -109,7 +109,10 @@ class GrugStore:
         if path_file.exists() and not overwrite:
             raise FileExistsError(f"File already exists: {path_file.as_posix()}")
 
-        path_file.write_bytes(data)
+        tmp_path = path_file.with_suffix(self._tmp_suffix)
+        tmp_path.write_bytes(data)
+        tmp_path.rename(path_file)
+
         return path_file
 
     def sibling_path(self, hash_str: str, ext: str) -> Path:
