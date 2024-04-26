@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "grugstore"
+version = "0.0.1"
+description = "Simplest possible file store for blobs."
+authors = ["generativist <jbn@abreka.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/jbn/grugstore"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+base58 = "^2.1.1"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.2"
+black = "^24.4.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
