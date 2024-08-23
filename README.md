@@ -13,13 +13,13 @@ blobstore = GrugStore('some-dir', hierarchy_depth=3)
 hash_str, file_path = blobstore.store(b'Hello, World!')
 
 # Load a blob
-blob = blobstore.load(hash_str)
+blob = blobstore.load_bytes(hash_str)
 
 # Save metadata
 blobstore.store_sibling(hash_str, 'json', b'{"key": "value"}')
 
 # Load metadata
-metadata = blobstore.load_sibling(hash_str, 'json')
+metadata = blobstore.load_sibling_bytes(hash_str, 'json')
 
 # Iter all items in the store
 for hash_str, file_path in blobstore.iter_files(no_sibling=True):
