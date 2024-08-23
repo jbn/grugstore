@@ -7,7 +7,7 @@ the blob file.
 
 ```python
 # Create a blob store (does nothing)
-blobstore = BlobStore('some-dir', hierarchy_depth=3)
+blobstore = GrugStore('some-dir', hierarchy_depth=3)
 
 # Save a blob  ('some-dir/hash[0]/hash[1]/hash[2]/hash')
 hash_str, file_path = blobstore.save(b'Hello, World!')
