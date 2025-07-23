@@ -266,6 +266,9 @@ class GrugStore:
             # Original behavior - iterate only main blobs
             for path in self.base_dir.rglob("*"):
                 if path.is_file():
+                    # Skip files in special directories
+                    if "_meta" in path.parts or "_tmp" in path.parts:
+                        continue
                     filename = path.name
                     # Skip files with extensions (siblings)
                     if "." not in filename:
@@ -277,6 +280,9 @@ class GrugStore:
             # First pass: collect all files
             for path in self.base_dir.rglob("*"):
                 if path.is_file():
+                    # Skip files in special directories
+                    if "_meta" in path.parts or "_tmp" in path.parts:
+                        continue
                     filename = path.name
 
                     if "." in filename:
@@ -387,6 +393,47 @@ class GrugStore:
         if not readme_path.exists():
             raise FileNotFoundError(f"README file not found at {readme_path}")
         return readme_path.read_text(encoding="utf-8")
+
+    def filtered_copy(self, new_gs_dir: Union[str, Path], filter_func) -> "GrugStore":
+        """Create a filtered copy of this GrugStore.
+
+        Args:
+            new_gs_dir: The directory for the new GrugStore.
+            filter_func: A function that takes (hash_str, file_path) and returns
+                        True if the file should be copied.
+
+        Returns:
+            A new GrugStore instance containing only the filtered files.
+        """
+        # Create the new GrugStore
+        new_gs = GrugStore(new_gs_dir, self.hierarchy_depth)
+
+        # Copy filtered files and their siblings
+        for hash_str, file_path, sibling_extensions in self.iter_files(no_sibling=False):
+            # Check if this file passes the filter
+            if filter_func(hash_str, file_path):
+                # Copy the main blob
+                data = self.load_bytes(hash_str)
+                new_gs.store(data)
+
+                # Copy all sibling files
+                for ext in sibling_extensions:
+                    try:
+                        sibling_data = self.load_sibling_bytes(hash_str, ext)
+                        new_gs.store_sibling(hash_str, ext, sibling_data)
+                    except FileNotFoundError:
+                        # Skip if sibling file doesn't exist
+                        pass
+
+        # Copy _meta/README if it exists
+        try:
+            readme_content = self.get_readme()
+            new_gs.set_readme(readme_content)
+        except FileNotFoundError:
+            # No README to copy
+            pass
+
+        return new_gs
 
 
 def main() -> None:

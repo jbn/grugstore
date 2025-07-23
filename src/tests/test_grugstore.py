@@ -963,3 +963,285 @@ class TestGrugStore:
         
         retrieved_content = store.get_readme()
         assert retrieved_content == unicode_content
+
+    def test_filtered_copy_basic(self, temp_dir):
+        """Test basic filtered_copy functionality."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        # Create source store and add data
+        source_store = GrugStore(source_dir, hierarchy_depth=3)
+        
+        # Store multiple blobs
+        data1 = b"First blob"
+        data2 = b"Second blob"
+        data3 = b"Third blob"
+        
+        hash1, _ = source_store.store(data1)
+        hash2, _ = source_store.store(data2)
+        hash3, _ = source_store.store(data3)
+        
+        # Filter function: only accept first two blobs
+        def filter_func(hash_str, file_path):
+            return hash_str in [hash1, hash2]
+        
+        # Create filtered copy
+        dest_store = source_store.filtered_copy(dest_dir, filter_func)
+        
+        # Verify destination store has correct hierarchy depth
+        assert dest_store.hierarchy_depth == source_store.hierarchy_depth
+        
+        # Verify only filtered blobs exist in destination
+        assert dest_store.exists(hash1)
+        assert dest_store.exists(hash2)
+        assert not dest_store.exists(hash3)
+        
+        # Verify content is correct
+        assert dest_store.load_bytes(hash1) == data1
+        assert dest_store.load_bytes(hash2) == data2
+
+    def test_filtered_copy_with_siblings(self, temp_dir):
+        """Test that filtered_copy correctly copies sibling files."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Store blobs with siblings
+        data1 = b"Blob with siblings"
+        hash1, _ = source_store.store(data1)
+        source_store.store_sibling(hash1, "json", b'{"meta": "data1"}')
+        source_store.store_sibling(hash1, "txt", b"text metadata1")
+        source_store.store_sibling(hash1, "xml", b"<meta>data1</meta>")
+        
+        data2 = b"Another blob with siblings"
+        hash2, _ = source_store.store(data2)
+        source_store.store_sibling(hash2, "json", b'{"meta": "data2"}')
+        
+        data3 = b"Blob without siblings"
+        hash3, _ = source_store.store(data3)
+        
+        # Filter: accept hash1 and hash3
+        def filter_func(hash_str, file_path):
+            return hash_str in [hash1, hash3]
+        
+        dest_store = source_store.filtered_copy(dest_dir, filter_func)
+        
+        # Verify main blobs
+        assert dest_store.exists(hash1)
+        assert not dest_store.exists(hash2)
+        assert dest_store.exists(hash3)
+        
+        # Verify hash1 siblings were copied
+        assert dest_store.exists(hash1, "json")
+        assert dest_store.exists(hash1, "txt")
+        assert dest_store.exists(hash1, "xml")
+        assert dest_store.load_sibling_bytes(hash1, "json") == b'{"meta": "data1"}'
+        assert dest_store.load_sibling_bytes(hash1, "txt") == b"text metadata1"
+        assert dest_store.load_sibling_bytes(hash1, "xml") == b"<meta>data1</meta>"
+        
+        # Verify hash2 siblings were not copied
+        assert not dest_store.exists(hash2, "json")
+        
+        # Verify hash3 (no siblings) works correctly
+        assert dest_store.load_bytes(hash3) == data3
+
+    def test_filtered_copy_with_readme(self, temp_dir):
+        """Test that filtered_copy copies the README file."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Set README in source
+        readme_content = "This is the GrugStore README"
+        source_store.set_readme(readme_content)
+        
+        # Add some data
+        data = b"Test data"
+        hash_str, _ = source_store.store(data)
+        
+        # Filter that accepts everything
+        def accept_all(hash_str, file_path):
+            return True
+        
+        dest_store = source_store.filtered_copy(dest_dir, accept_all)
+        
+        # Verify README was copied
+        assert dest_store.get_readme() == readme_content
+
+    def test_filtered_copy_without_readme(self, temp_dir):
+        """Test that filtered_copy handles missing README gracefully."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Add data but no README
+        data = b"Test data"
+        hash_str, _ = source_store.store(data)
+        
+        def accept_all(hash_str, file_path):
+            return True
+        
+        # Should not raise error
+        dest_store = source_store.filtered_copy(dest_dir, accept_all)
+        
+        # Destination should also not have README
+        with pytest.raises(FileNotFoundError):
+            dest_store.get_readme()
+
+    def test_filtered_copy_empty_filter(self, temp_dir):
+        """Test filtered_copy when filter rejects all files."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Add data
+        data1 = b"Data 1"
+        data2 = b"Data 2"
+        source_store.store(data1)
+        source_store.store(data2)
+        
+        # Filter that rejects everything
+        def reject_all(hash_str, file_path):
+            return False
+        
+        dest_store = source_store.filtered_copy(dest_dir, reject_all)
+        
+        # Destination should be empty
+        results = list(dest_store.iter_files())
+        assert results == []
+
+    def test_filtered_copy_path_based_filter(self, temp_dir):
+        """Test filtered_copy with filter based on file paths."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir, hierarchy_depth=3)
+        
+        # Store multiple blobs
+        data1 = b"ABC"  # Hash will start with certain character
+        data2 = b"XYZ"  # Different starting character
+        
+        hash1, path1 = source_store.store(data1)
+        hash2, path2 = source_store.store(data2)
+        
+        # Filter based on path structure
+        def path_filter(hash_str, file_path):
+            # Only accept files in certain subdirectories
+            return str(file_path).startswith(str(source_store.base_dir / hash_str[0]))
+        
+        dest_store = source_store.filtered_copy(dest_dir, path_filter)
+        
+        # Both should be copied since path starts with first char of hash
+        assert dest_store.exists(hash1)
+        assert dest_store.exists(hash2)
+
+    def test_filtered_copy_different_hierarchy_depth(self, temp_dir):
+        """Test that filtered_copy preserves hierarchy depth."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        # Create source with non-default hierarchy depth
+        source_store = GrugStore(source_dir, hierarchy_depth=5)
+        
+        data = b"Test data"
+        hash_str, source_path = source_store.store(data)
+        
+        def accept_all(hash_str, file_path):
+            return True
+        
+        dest_store = source_store.filtered_copy(dest_dir, accept_all)
+        
+        # Verify hierarchy depth is preserved
+        assert dest_store.hierarchy_depth == 5
+        
+        # Verify path structure is correct
+        dest_path = dest_store.path_to(hash_str)
+        assert len(dest_path.relative_to(dest_store.base_dir).parts) == 6  # 5 levels + filename
+
+    def test_filtered_copy_complex_filter(self, temp_dir):
+        """Test filtered_copy with complex filtering logic."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Store various sized blobs
+        small_data = b"Small"
+        medium_data = b"Medium sized data" * 100
+        large_data = b"Large data" * 1000
+        
+        small_hash, _ = source_store.store(small_data)
+        medium_hash, _ = source_store.store(medium_data)
+        large_hash, _ = source_store.store(large_data)
+        
+        # Add siblings to medium
+        source_store.store_sibling(medium_hash, "json", b'{"size": "medium"}')
+        
+        # Complex filter: only files between 100 and 5000 bytes
+        def size_filter(hash_str, file_path):
+            size = file_path.stat().st_size
+            return 100 <= size <= 5000
+        
+        dest_store = source_store.filtered_copy(dest_dir, size_filter)
+        
+        # Only medium should be copied
+        assert not dest_store.exists(small_hash)
+        assert dest_store.exists(medium_hash)
+        assert not dest_store.exists(large_hash)
+        
+        # Sibling should also be copied
+        assert dest_store.exists(medium_hash, "json")
+
+    def test_filtered_copy_handles_missing_siblings(self, temp_dir):
+        """Test that filtered_copy handles missing siblings gracefully."""
+        source_dir = temp_dir + "/source"
+        dest_dir = temp_dir + "/dest"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Store blob
+        data = b"Test data"
+        hash_str, path = source_store.store(data)
+        
+        # Manually create a sibling file reference that doesn't actually exist
+        # This simulates a corrupted state
+        sibling_path = source_store.path_to(hash_str, "ghost")
+        sibling_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        def accept_all(hash_str, file_path):
+            return True
+        
+        # Should not raise error even with missing sibling
+        dest_store = source_store.filtered_copy(dest_dir, accept_all)
+        
+        # Main blob should be copied
+        assert dest_store.exists(hash_str)
+        assert dest_store.load_bytes(hash_str) == data
+
+    def test_filtered_copy_idempotent(self, temp_dir):
+        """Test that running filtered_copy twice produces same result."""
+        source_dir = temp_dir + "/source"
+        dest_dir1 = temp_dir + "/dest1"
+        dest_dir2 = temp_dir + "/dest2"
+        
+        source_store = GrugStore(source_dir)
+        
+        # Add data with siblings
+        data = b"Test data"
+        hash_str, _ = source_store.store(data)
+        source_store.store_sibling(hash_str, "json", b'{"test": true}')
+        
+        def accept_all(hash_str, file_path):
+            return True
+        
+        # Create two copies
+        dest_store1 = source_store.filtered_copy(dest_dir1, accept_all)
+        dest_store2 = source_store.filtered_copy(dest_dir2, accept_all)
+        
+        # Both should have same content
+        assert dest_store1.load_bytes(hash_str) == dest_store2.load_bytes(hash_str)
+        assert dest_store1.load_sibling_bytes(hash_str, "json") == dest_store2.load_sibling_bytes(hash_str, "json")
