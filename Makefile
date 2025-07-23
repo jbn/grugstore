@@ -23,3 +23,9 @@ typecheck:
 
 .PHONY: check
 check: lint typecheck test
+
+.PHONY: publish
+publish:
+	# First bump the version - you can use: uv version --bump patch/minor/major
+	# Then build and publish the package
+	uv publish
