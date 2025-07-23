@@ -34,20 +34,12 @@ class GrugStore:
         hash_bytes = hashlib.sha256(data).digest()
         hash_str = base58.b58encode(hash_bytes).decode("ascii")
 
-        # Build the path based on hierarchy depth
-        path_parts = []
-        for i in range(self.hierarchy_depth):
-            if i < len(hash_str):
-                path_parts.append(hash_str[i])
-            else:
-                # If hash is shorter than hierarchy depth, use '0' as padding
-                path_parts.append("0")
+        # Get the path using path_to method
+        file_path = self.path_to(hash_str)
 
-        # Add the full hash as the filename
-        path_parts.append(hash_str)
-
-        # Create the full path
-        file_path = self.base_dir.joinpath(*path_parts)
+        # If file already exists, return without writing (noop)
+        if file_path.exists():
+            return hash_str, file_path
 
         # Create parent directories if they don't exist
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,16 +92,8 @@ class GrugStore:
             hash_bytes = hasher.digest()
             hash_str = base58.b58encode(hash_bytes).decode("ascii")
 
-            # Build the final path
-            path_parts = []
-            for i in range(self.hierarchy_depth):
-                if i < len(hash_str):
-                    path_parts.append(hash_str[i])
-                else:
-                    path_parts.append("0")
-            path_parts.append(hash_str)
-
-            final_path = self.base_dir.joinpath(*path_parts)
+            # Get the final path using path_to method
+            final_path = self.path_to(hash_str)
 
             # Create parent directories if needed
             final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,6 +113,51 @@ class GrugStore:
                 os.unlink(temp_path)
             raise
 
+    def path_to(self, content_hash: str, extension: Optional[str] = None) -> Path:
+        """Get the path to a blob or sibling file.
+
+        Args:
+            content_hash: The base58-encoded SHA-256 hash of the blob.
+            extension: Optional file extension for sibling files (without dot).
+                      If None, returns path to the main blob.
+
+        Returns:
+            The Path to the blob or sibling file.
+        """
+        # Build the path based on hierarchy depth
+        path_parts = []
+        for i in range(self.hierarchy_depth):
+            if i < len(content_hash):
+                path_parts.append(content_hash[i])
+            else:
+                # If hash is shorter than hierarchy depth, use '0' as padding
+                path_parts.append("0")
+
+        # Add the full hash as the filename
+        if extension is None:
+            path_parts.append(content_hash)
+        else:
+            # For sibling files, we need to go to the parent directory
+            # and add the filename with extension
+            path_parts.append(f"{content_hash}.{extension}")
+
+        # Create the full path
+        return self.base_dir.joinpath(*path_parts)
+
+    def exists(self, content_hash: str, extension: Optional[str] = None) -> bool:
+        """Check if a blob or sibling file exists in the store.
+
+        Args:
+            content_hash: The base58-encoded SHA-256 hash of the blob.
+            extension: Optional file extension for sibling files (without dot).
+                      If None, checks for the main blob.
+
+        Returns:
+            True if the file exists, False otherwise.
+        """
+        file_path = self.path_to(content_hash, extension)
+        return file_path.exists()
+
     def load_bytes(self, hash_str: str) -> bytes:
         """Load a blob from the store by its hash.
 
@@ -141,20 +170,7 @@ class GrugStore:
         Raises:
             FileNotFoundError: If the blob does not exist in the store.
         """
-        # Build the path based on hierarchy depth
-        path_parts = []
-        for i in range(self.hierarchy_depth):
-            if i < len(hash_str):
-                path_parts.append(hash_str[i])
-            else:
-                # If hash is shorter than hierarchy depth, use '0' as padding
-                path_parts.append("0")
-
-        # Add the full hash as the filename
-        path_parts.append(hash_str)
-
-        # Create the full path
-        file_path = self.base_dir.joinpath(*path_parts)
+        file_path = self.path_to(hash_str)
 
         # Check if file exists
         if not file_path.exists():
@@ -178,23 +194,13 @@ class GrugStore:
             FileNotFoundError: If the main blob does not exist in the store.
         """
         # First verify the main blob exists
-        # Build the path to check if main blob exists
-        path_parts = []
-        for i in range(self.hierarchy_depth):
-            if i < len(hash_str):
-                path_parts.append(hash_str[i])
-            else:
-                path_parts.append("0")
-        path_parts.append(hash_str)
-
-        main_blob_path = self.base_dir.joinpath(*path_parts)
-        if not main_blob_path.exists():
+        if not self.exists(hash_str):
             raise FileNotFoundError(
                 f"Main blob with hash {hash_str} not found in store"
             )
 
-        # Create sibling file path
-        sibling_path = main_blob_path.parent / f"{hash_str}.{extension}"
+        # Get sibling file path
+        sibling_path = self.path_to(hash_str, extension)
 
         # Write the sibling data
         sibling_path.write_bytes(data)
@@ -215,31 +221,19 @@ class GrugStore:
             FileNotFoundError: If the main blob or sibling file does not exist.
         """
         # First verify the main blob exists
-        # Build the path to check if main blob exists
-        path_parts = []
-        for i in range(self.hierarchy_depth):
-            if i < len(hash_str):
-                path_parts.append(hash_str[i])
-            else:
-                path_parts.append("0")
-        path_parts.append(hash_str)
-
-        main_blob_path = self.base_dir.joinpath(*path_parts)
-        if not main_blob_path.exists():
+        if not self.exists(hash_str):
             raise FileNotFoundError(
                 f"Main blob with hash {hash_str} not found in store"
             )
 
-        # Create sibling file path
-        sibling_path = main_blob_path.parent / f"{hash_str}.{extension}"
-
         # Check if sibling file exists
-        if not sibling_path.exists():
+        if not self.exists(hash_str, extension):
             raise FileNotFoundError(
                 f"Sibling file {hash_str}.{extension} not found in store"
             )
 
-        # Read and return the data
+        # Get sibling file path and read data
+        sibling_path = self.path_to(hash_str, extension)
         return sibling_path.read_bytes()
 
     def iter_files(

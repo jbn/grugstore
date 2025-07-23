@@ -71,6 +71,33 @@ class TestGrugStore:
         assert path1 == path2
         assert path1.exists()
 
+    def test_store_noop_when_file_exists(self, temp_dir):
+        """Test that store() is a noop when file already exists."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        data = b"Test content for noop"
+
+        # First store
+        hash_str, file_path = store.store(data)
+        assert file_path.exists()
+
+        # Get the modification time
+        original_mtime = file_path.stat().st_mtime_ns
+
+        # Wait a tiny bit to ensure different mtime if file is rewritten
+        import time
+        time.sleep(0.01)
+
+        # Store again - should be noop
+        hash2, path2 = store.store(data)
+
+        # Should return same hash and path
+        assert hash2 == hash_str
+        assert path2 == file_path
+
+        # File modification time should not change (noop)
+        new_mtime = file_path.stat().st_mtime_ns
+        assert new_mtime == original_mtime
+
     def test_store_different_hierarchy_depths(self, temp_dir):
         """Test store with different hierarchy depths."""
         store2 = GrugStore(temp_dir + "/depth2", hierarchy_depth=2)
@@ -370,6 +397,39 @@ class TestGrugStore:
         expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
         assert hash_str == expected_hash_str
 
+    def test_stream_deletes_temp_when_file_exists(self, temp_dir):
+        """Test that stream() deletes temp file when target already exists."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        data = b"Duplicate stream data"
+
+        # First, store the data using regular store
+        hash_str, file_path = store.store(data)
+        assert file_path.exists()
+
+        # Get the modification time
+        original_mtime = file_path.stat().st_mtime_ns
+
+        # Create a stream with the same data
+        stream = io.BytesIO(data)
+
+        # Stream the data - should delete temp file, not overwrite existing
+        hash_str2 = store.stream(stream)
+
+        # Should return same hash
+        assert hash_str2 == hash_str
+
+        # File should still exist
+        assert file_path.exists()
+
+        # File modification time should not change
+        new_mtime = file_path.stat().st_mtime_ns
+        assert new_mtime == original_mtime
+
+        # Verify temp directory is clean
+        temp_dir_path = Path(temp_dir) / "_tmp"
+        if temp_dir_path.exists():
+            assert len(list(temp_dir_path.iterdir())) == 0
+
     def test_validate_tree_with_valid_files(self, temp_dir):
         """Test that validate_tree() returns empty iterator for valid files."""
         store = GrugStore(temp_dir, hierarchy_depth=3)
@@ -521,3 +581,177 @@ class TestGrugStore:
         hash_returned, path_returned, siblings = results[0]
         assert hash_returned == hash_str
         assert siblings == set()  # Empty set for no siblings
+
+    def test_path_to_main_blob(self, temp_dir):
+        """Test that path_to() returns correct path for main blobs."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Test with a known hash
+        test_hash = "Qm1234567890abcdef"
+        
+        # Get path for main blob
+        path = store.path_to(test_hash)
+        
+        # Verify the path structure
+        path_parts = path.relative_to(store.base_dir).parts
+        assert len(path_parts) == 4  # 3 hierarchy levels + filename
+        assert path_parts[0] == test_hash[0]
+        assert path_parts[1] == test_hash[1]
+        assert path_parts[2] == test_hash[2]
+        assert path_parts[3] == test_hash
+
+    def test_path_to_sibling_file(self, temp_dir):
+        """Test that path_to() returns correct path for sibling files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Test with a known hash and extension
+        test_hash = "Qm1234567890abcdef"
+        extension = "json"
+        
+        # Get path for sibling file
+        path = store.path_to(test_hash, extension)
+        
+        # Verify the path structure
+        path_parts = path.relative_to(store.base_dir).parts
+        assert len(path_parts) == 4  # 3 hierarchy levels + filename
+        assert path_parts[0] == test_hash[0]
+        assert path_parts[1] == test_hash[1]
+        assert path_parts[2] == test_hash[2]
+        assert path_parts[3] == f"{test_hash}.{extension}"
+
+    def test_path_to_different_hierarchy_depths(self, temp_dir):
+        """Test path_to() with different hierarchy depths."""
+        # Test with depth 2
+        store2 = GrugStore(temp_dir + "/depth2", hierarchy_depth=2)
+        test_hash = "QmTest123"
+        
+        path2 = store2.path_to(test_hash)
+        path2_parts = path2.relative_to(store2.base_dir).parts
+        assert len(path2_parts) == 3  # 2 hierarchy levels + filename
+        assert path2_parts[0] == test_hash[0]
+        assert path2_parts[1] == test_hash[1]
+        assert path2_parts[2] == test_hash
+
+        # Test with depth 5
+        store5 = GrugStore(temp_dir + "/depth5", hierarchy_depth=5)
+        path5 = store5.path_to(test_hash)
+        path5_parts = path5.relative_to(store5.base_dir).parts
+        assert len(path5_parts) == 6  # 5 hierarchy levels + filename
+        assert path5_parts[0] == test_hash[0]
+        assert path5_parts[1] == test_hash[1]
+        assert path5_parts[2] == test_hash[2]
+        assert path5_parts[3] == test_hash[3]
+        assert path5_parts[4] == test_hash[4]
+        assert path5_parts[5] == test_hash
+
+    def test_path_to_short_hash(self, temp_dir):
+        """Test path_to() with hash shorter than hierarchy depth."""
+        store = GrugStore(temp_dir, hierarchy_depth=5)
+        
+        # Use a hash shorter than hierarchy depth
+        short_hash = "Qm"
+        
+        path = store.path_to(short_hash)
+        path_parts = path.relative_to(store.base_dir).parts
+        
+        # Should pad with '0'
+        assert len(path_parts) == 6  # 5 hierarchy levels + filename
+        assert path_parts[0] == "Q"
+        assert path_parts[1] == "m"
+        assert path_parts[2] == "0"
+        assert path_parts[3] == "0"
+        assert path_parts[4] == "0"
+        assert path_parts[5] == short_hash
+
+    def test_exists_main_blob(self, temp_dir):
+        """Test that exists() correctly detects presence of main blobs."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store a blob
+        data = b"Test blob for exists"
+        hash_str, _ = store.store(data)
+        
+        # Test that the blob exists
+        assert store.exists(hash_str) is True
+        
+        # Test that a non-existent blob doesn't exist
+        fake_hash = base58.b58encode(b"nonexistent").decode("ascii")
+        assert store.exists(fake_hash) is False
+
+    def test_exists_sibling_file(self, temp_dir):
+        """Test that exists() correctly detects presence of sibling files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store a blob and sibling
+        data = b"Main blob data"
+        hash_str, _ = store.store(data)
+        sibling_data = b'{"metadata": "test"}'
+        store.store_sibling(hash_str, "json", sibling_data)
+        
+        # Test that the sibling exists
+        assert store.exists(hash_str, "json") is True
+        
+        # Test that a non-existent sibling doesn't exist
+        assert store.exists(hash_str, "xml") is False
+
+    def test_exists_before_store(self, temp_dir):
+        """Test that exists() returns False before storing anything."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Generate a valid-looking hash
+        test_data = b"Not yet stored"
+        hash_bytes = hashlib.sha256(test_data).digest()
+        hash_str = base58.b58encode(hash_bytes).decode("ascii")
+        
+        # Should not exist before storing
+        assert store.exists(hash_str) is False
+        
+        # Store it
+        store.store(test_data)
+        
+        # Now it should exist
+        assert store.exists(hash_str) is True
+
+    def test_exists_with_different_hierarchy_depths(self, temp_dir):
+        """Test exists() with different hierarchy depths."""
+        # Create store with depth 2
+        store2 = GrugStore(temp_dir + "/depth2", hierarchy_depth=2)
+        data = b"Test data for depth 2"
+        hash_str, _ = store2.store(data)
+        
+        # Should exist in store2
+        assert store2.exists(hash_str) is True
+        
+        # Create another store with depth 4 at different location
+        store4 = GrugStore(temp_dir + "/depth4", hierarchy_depth=4)
+        
+        # Same hash should not exist in store4 (different location)
+        assert store4.exists(hash_str) is False
+        
+        # Store in store4
+        store4.store(data)
+        
+        # Now should exist in store4
+        assert store4.exists(hash_str) is True
+
+    def test_exists_multiple_siblings(self, temp_dir):
+        """Test exists() with multiple sibling files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store main blob
+        data = b"Main blob with siblings"
+        hash_str, _ = store.store(data)
+        
+        # Store multiple siblings
+        store.store_sibling(hash_str, "json", b'{"type": "json"}')
+        store.store_sibling(hash_str, "txt", b"text metadata")
+        store.store_sibling(hash_str, "xml", b"<meta>xml</meta>")
+        
+        # All should exist
+        assert store.exists(hash_str) is True
+        assert store.exists(hash_str, "json") is True
+        assert store.exists(hash_str, "txt") is True
+        assert store.exists(hash_str, "xml") is True
+        
+        # Non-existent extension should not exist
+        assert store.exists(hash_str, "pdf") is False
