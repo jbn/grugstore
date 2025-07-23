@@ -1,0 +1,9 @@
+- This is a `uv`-based project.
+  - Use `uv run ...` to run python scripts not `python ...`
+  - Add dependencies with `uv add ...` not `pip`
+  - The project is in `src/grugstore`. But `uv` handles the path so you don't need to prefix `src.`
+  - Run pytest with `uv run pytest src/tests`
+  - Lint with `uv run ruff check src/`
+  - Format with `uv run black src/`
+  - Typecheck with `uv run ty check`
+  - Check with `make check`
