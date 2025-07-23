@@ -19,6 +19,10 @@ class GrugStore:
         """
         self.base_dir = Path(base_dir)
         self.hierarchy_depth = hierarchy_depth
+        
+        # Create _meta directory if it doesn't exist
+        self._meta_dir = self.base_dir / "_meta"
+        self._meta_dir.mkdir(parents=True, exist_ok=True)
 
     def store(self, data: bytes) -> Tuple[str, Path]:
         """Store a blob of data in the content-addressable store.
@@ -360,6 +364,29 @@ class GrugStore:
                                         pass
                     except Exception:
                         pass
+
+    def set_readme(self, content: str) -> None:
+        """Set the README content for this GrugStore.
+        
+        Args:
+            content: The README content to store.
+        """
+        readme_path = self._meta_dir / "README"
+        readme_path.write_text(content, encoding="utf-8")
+    
+    def get_readme(self) -> str:
+        """Get the README content for this GrugStore.
+        
+        Returns:
+            The README content, or empty string if not set.
+        
+        Raises:
+            FileNotFoundError: If the README file does not exist.
+        """
+        readme_path = self._meta_dir / "README"
+        if not readme_path.exists():
+            raise FileNotFoundError(f"README file not found at {readme_path}")
+        return readme_path.read_text(encoding="utf-8")
 
 
 def main() -> None:

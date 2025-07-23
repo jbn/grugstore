@@ -905,3 +905,61 @@ class TestGrugStore:
         assert file_path.exists()
         assert store.exists(hash_str, "json")
         assert store.exists(hash_str, "txt")
+
+    def test_meta_directory_created(self, temp_dir):
+        """Test that _meta directory is created on initialization."""
+        GrugStore(temp_dir)  # Just creating the store should create _meta dir
+        meta_dir = Path(temp_dir) / "_meta"
+        assert meta_dir.exists()
+        assert meta_dir.is_dir()
+
+    def test_set_and_get_readme(self, temp_dir):
+        """Test setting and getting README content."""
+        store = GrugStore(temp_dir)
+        
+        # Test setting README
+        readme_content = "This is a test README for GrugStore"
+        store.set_readme(readme_content)
+        
+        # Test getting README
+        retrieved_content = store.get_readme()
+        assert retrieved_content == readme_content
+        
+        # Verify file exists in correct location
+        readme_path = Path(temp_dir) / "_meta" / "README"
+        assert readme_path.exists()
+        assert readme_path.read_text(encoding="utf-8") == readme_content
+
+    def test_set_readme_overwrite(self, temp_dir):
+        """Test that set_readme overwrites existing content."""
+        store = GrugStore(temp_dir)
+        
+        # Set initial README
+        store.set_readme("Initial content")
+        assert store.get_readme() == "Initial content"
+        
+        # Overwrite with new content
+        new_content = "Updated README content"
+        store.set_readme(new_content)
+        assert store.get_readme() == new_content
+
+    def test_get_readme_not_found(self, temp_dir):
+        """Test that get_readme raises FileNotFoundError when README doesn't exist."""
+        store = GrugStore(temp_dir)
+        
+        # README hasn't been set yet
+        with pytest.raises(FileNotFoundError) as excinfo:
+            store.get_readme()
+        
+        assert "_meta/README" in str(excinfo.value)
+
+    def test_readme_unicode_content(self, temp_dir):
+        """Test README with unicode content."""
+        store = GrugStore(temp_dir)
+        
+        # Test with unicode content
+        unicode_content = "Hello 世界! 🌍 This is a test with émojis and spëcial characters."
+        store.set_readme(unicode_content)
+        
+        retrieved_content = store.get_readme()
+        assert retrieved_content == unicode_content
