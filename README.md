@@ -1,5 +1,9 @@
 # Simplest Possible Content-Addressable Blob Store
 
+<p align="center">
+  <img src="grugstore.png" alt="GrugStore Logo" width="512" height="512">
+</p>
+
 [![PyPI version](https://img.shields.io/pypi/v/grugstore.svg)](https://pypi.org/project/grugstore/)
 
 This is a simple content-addressable blob store. It stores blobs of data and
