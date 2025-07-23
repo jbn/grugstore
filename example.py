@@ -43,12 +43,12 @@ def main():
 
         # Iterate over all blobs (excluding siblings)
         print("\nAll blobs in store:")
-        for hash_str, file_path in gs.iter_files(no_sibling=True):
+        for hash_str, file_path in gs.iter_files(no_sibling=True):  # type: ignore
             print(f"  {hash_str}: {file_path}")
 
         # Iterate over all files (with sibling extensions)
         print("\nAll blobs with their sibling extensions:")
-        for hash_str, file_path, sibling_exts in gs.iter_files(no_sibling=False):
+        for hash_str, file_path, sibling_exts in gs.iter_files(no_sibling=False):  # type: ignore
             print(f"  {hash_str}: {file_path}")
             if sibling_exts:
                 print(f"    Siblings: {', '.join(sorted(sibling_exts))}")

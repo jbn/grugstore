@@ -260,7 +260,7 @@ class TestGrugStore:
 
         # Collect all returned hashes
         returned_hashes = []
-        for hash_str, file_path in store.iter_files(no_sibling=True):
+        for hash_str, file_path in store.iter_files(no_sibling=True):  # type: ignore
             returned_hashes.append(hash_str)
             assert file_path.exists()
             assert file_path.name == hash_str
@@ -374,7 +374,7 @@ class TestGrugStore:
 
         # Attempt to stream
         with pytest.raises(IOError):
-            store.stream(FailingStream())
+            store.stream(FailingStream())  # type: ignore
 
         # Verify temp directory is clean
         temp_dir_path = Path(temp_dir) / "_tmp"

@@ -1,5 +1,5 @@
 .PHONY: all
-all: lint test
+all: lint typecheck test
 
 .PHONY: test
 test:
@@ -17,5 +17,9 @@ lint:
 lint-fix:
 	uv run ruff check --fix src/
 
+.PHONY: typecheck
+typecheck:
+	uv run ty check
+
 .PHONY: check
-check: lint test
+check: lint typecheck test
