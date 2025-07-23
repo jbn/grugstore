@@ -1,12 +1,12 @@
 [project]
 name = "grugstore"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simplest possible content-addressable file store for blobs."
 readme = "README.md"
 authors = [
     { name = "generativist", email = "jbn@abreka.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "base58>=2.1.1",
 ]

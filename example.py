@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Example usage of the GrugStore content-addressable blob store."""
 
 from grugstore import GrugStore
