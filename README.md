@@ -1,5 +1,7 @@
 # Simplest Possible Content-Addressable Blob Store
 
+[![PyPI version](https://img.shields.io/pypi/v/grugstore.svg)](https://pypi.org/project/grugstore/)
+
 This is a simple content-addressable blob store. It stores blobs of data and
 associated metadata. The blobs are stored in a directory hierarchy based on the
 base58 encoding of their SHA-256 hash. Metadata is stored as siblings to
@@ -102,3 +104,35 @@ for invalid_path in blobstore.validate_tree():
 for invalid_path in blobstore.validate_tree(auto_delete=True):
     print(f"Deleted corrupted file: {invalid_path}")
 ```
+
+## File Layout
+
+GrugStore organizes files in a hierarchical directory structure based on the base58-encoded SHA-256 hash of the content. Here's an example of what a GrugStore directory looks like with `hierarchy_depth=2`:
+
+```
+some-dir/
+├── _meta/
+│   └── README.md          # Optional store-level documentation
+├── _tmp/                  # Temporary directory for atomic file operations
+│   └── .gitkeep          # Ensures directory exists in git
+├── 2X/
+│   └── aB/
+│       ├── 2XaBcD...xyz  # The actual blob file (no extension)
+│       └── 2XaBcD...xyz.json  # Sibling metadata file
+├── 5K/
+│   └── j9/
+│       ├── 5Kj9Yz...abc  # Another blob
+│       ├── 5Kj9Yz...abc.json  # JSON sibling
+│       └── 5Kj9Yz...abc.txt   # Text sibling
+└── 8R/
+    └── m4/
+        └── 8Rm4Qp...def  # Blob without any sibling files
+```
+
+### Directory Structure Details
+
+- **Hash-based hierarchy**: Files are organized using prefixes of their base58-encoded hash. With `hierarchy_depth=2`, the first 2 characters become the first directory level, the next 2 characters become the second level.
+- **Blob files**: The main content files have no extension and are named with their full hash.
+- **Sibling files**: Related metadata or additional content files share the same hash name but include an extension (e.g., `.json`, `.txt`).
+- **`_meta/` directory**: Contains store-level metadata like README files.
+- **`_tmp/` directory**: Used internally for atomic file operations. Files are first written here and then moved to their final location to ensure write atomicity and prevent partial file corruption.
