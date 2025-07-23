@@ -116,26 +116,26 @@ GrugStore organizes files in a hierarchical directory structure based on the bas
 ```
 some-dir/
 ├── _meta/
-│   └── README.md          # Optional store-level documentation
+│   └── README          # Optional store-level documentation
 ├── _tmp/                  # Temporary directory for atomic file operations
 │   └── .gitkeep          # Ensures directory exists in git
-├── 2X/
-│   └── aB/
+├── 2/
+│   └── X/
 │       ├── 2XaBcD...xyz  # The actual blob file (no extension)
 │       └── 2XaBcD...xyz.json  # Sibling metadata file
-├── 5K/
-│   └── j9/
+├── 5/
+│   └── K/
 │       ├── 5Kj9Yz...abc  # Another blob
 │       ├── 5Kj9Yz...abc.json  # JSON sibling
 │       └── 5Kj9Yz...abc.txt   # Text sibling
-└── 8R/
-    └── m4/
+└── 8/
+    └── R/
         └── 8Rm4Qp...def  # Blob without any sibling files
 ```
 
 ### Directory Structure Details
 
-- **Hash-based hierarchy**: Files are organized using prefixes of their base58-encoded hash. With `hierarchy_depth=2`, the first 2 characters become the first directory level, the next 2 characters become the second level.
+- **Hash-based hierarchy**: Files are organized using prefixes of their base58-encoded hash. With `hierarchy_depth=2`, the first character becomes the first directory level, the second character becomes the second level.
 - **Blob files**: The main content files have no extension and are named with their full hash.
 - **Sibling files**: Related metadata or additional content files share the same hash name but include an extension (e.g., `.json`, `.txt`).
 - **`_meta/` directory**: Contains store-level metadata like README files.
