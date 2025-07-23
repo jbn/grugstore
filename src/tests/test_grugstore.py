@@ -5,6 +5,8 @@ from pathlib import Path
 from grugstore import GrugStore
 import hashlib
 import base58
+import io
+import uuid
 
 
 class TestGrugStore:
@@ -256,11 +258,11 @@ class TestGrugStore:
 
         # Iterate with no_sibling=False
         results = list(store.iter_files(no_sibling=False))
-        # Should include both main blob and sibling
-        assert len(results) == 2
-        filenames = [path.name for _, path in results]
-        assert hash_str in filenames
-        assert f"{hash_str}.json" in filenames
+        # New behavior: returns one entry per hash with sibling extensions
+        assert len(results) == 1
+        returned_hash, returned_path, siblings = results[0]
+        assert returned_hash == hash_str
+        assert siblings == {"json"}
 
     def test_iter_files_empty_store(self, temp_dir):
         """Test that iter_files() returns empty iterator for empty store."""
@@ -288,3 +290,234 @@ class TestGrugStore:
         assert len(results5) == 1
         assert results2[0][0] == hash2
         assert results5[0][0] == hash5
+
+    def test_stream_saves_from_file_like_object(self, temp_dir):
+        """Test that stream() correctly saves data from a file-like object."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        data = b"Streaming data test"
+
+        # Create a file-like object
+        stream = io.BytesIO(data)
+
+        # Stream the data
+        hash_str = store.stream(stream)
+
+        # Calculate expected hash
+        expected_hash = hashlib.sha256(data).digest()
+        expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
+
+        assert hash_str == expected_hash_str
+
+        # Verify the data was stored correctly
+        loaded_data = store.load_bytes(hash_str)
+        assert loaded_data == data
+
+        # Verify temp directory is clean
+        temp_dir_path = Path(temp_dir) / "_tmp"
+        if temp_dir_path.exists():
+            assert len(list(temp_dir_path.iterdir())) == 0
+
+    def test_stream_large_file(self, temp_dir):
+        """Test streaming a large file in chunks."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Create large data (10MB)
+        large_data = b"x" * (10 * 1024 * 1024)
+        stream = io.BytesIO(large_data)
+
+        # Stream the data
+        hash_str = store.stream(stream)
+
+        # Verify hash
+        expected_hash = hashlib.sha256(large_data).digest()
+        expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
+        assert hash_str == expected_hash_str
+
+        # Verify data was stored
+        loaded_data = store.load_bytes(hash_str)
+        assert loaded_data == large_data
+
+    def test_stream_cleans_up_on_exception(self, temp_dir):
+        """Test that stream() cleans up temporary files on exception."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Create a mock file-like object that raises an exception
+        class FailingStream:
+            def read(self, size=-1):
+                raise IOError("Read failed")
+
+        # Attempt to stream
+        with pytest.raises(IOError):
+            store.stream(FailingStream())
+
+        # Verify temp directory is clean
+        temp_dir_path = Path(temp_dir) / "_tmp"
+        if temp_dir_path.exists():
+            assert len(list(temp_dir_path.iterdir())) == 0
+
+    def test_stream_handles_empty_stream(self, temp_dir):
+        """Test that stream() handles empty streams correctly."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Create empty stream
+        stream = io.BytesIO(b"")
+
+        # Stream the data
+        hash_str = store.stream(stream)
+
+        # Verify hash of empty data
+        expected_hash = hashlib.sha256(b"").digest()
+        expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
+        assert hash_str == expected_hash_str
+
+    def test_validate_tree_with_valid_files(self, temp_dir):
+        """Test that validate_tree() returns empty iterator for valid files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store some valid data
+        data1 = b"Valid data 1"
+        data2 = b"Valid data 2"
+
+        store.store(data1)
+        store.store(data2)
+
+        # Validate tree - should return no invalid files
+        invalid_files = list(store.validate_tree())
+        assert invalid_files == []
+
+    def test_validate_tree_detects_corrupted_file(self, temp_dir):
+        """Test that validate_tree() detects files with incorrect hash."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store valid data
+        data = b"Original data"
+        hash_str, file_path = store.store(data)
+
+        # Corrupt the file by changing its contents
+        corrupted_data = b"Corrupted data"
+        file_path.write_bytes(corrupted_data)
+
+        # Validate tree - should detect the corrupted file
+        invalid_files = list(store.validate_tree())
+        assert len(invalid_files) == 1
+        assert invalid_files[0] == file_path
+
+    def test_validate_tree_with_auto_delete(self, temp_dir):
+        """Test that validate_tree(auto_delete=True) removes invalid files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store valid data
+        data = b"Original data"
+        hash_str, file_path = store.store(data)
+
+        # Corrupt the file
+        file_path.write_bytes(b"Corrupted data")
+
+        # Validate tree with auto_delete
+        invalid_files = list(store.validate_tree(auto_delete=True))
+
+        # Should report the invalid file
+        assert len(invalid_files) == 1
+        assert invalid_files[0] == file_path
+
+        # File should be deleted
+        assert not file_path.exists()
+
+    def test_validate_tree_ignores_sibling_files(self, temp_dir):
+        """Test that validate_tree() ignores sibling files."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store data with sibling
+        data = b"Main data"
+        hash_str, _ = store.store(data)
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+
+        # Validate tree - should not check sibling files
+        invalid_files = list(store.validate_tree())
+        assert invalid_files == []
+
+    def test_validate_tree_with_misnamed_file(self, temp_dir):
+        """Test that validate_tree() detects files with wrong names."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store valid data
+        data = b"Test data"
+        hash_str, file_path = store.store(data)
+
+        # Rename the file to an incorrect hash
+        wrong_hash = base58.b58encode(b"wrong").decode("ascii")
+        wrong_path = file_path.parent / wrong_hash
+        file_path.rename(wrong_path)
+
+        # Validate tree - should detect the misnamed file
+        invalid_files = list(store.validate_tree())
+        assert len(invalid_files) == 1
+        assert invalid_files[0] == wrong_path
+
+    def test_iter_files_with_sibling_extensions(self, temp_dir):
+        """Test that iter_files(no_sibling=False) returns sibling extensions."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store blob with multiple siblings
+        data = b"Main blob"
+        hash_str, _ = store.store(data)
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+        store.store_sibling(hash_str, "txt", b"text metadata")
+        store.store_sibling(hash_str, "xml", b"<meta>data</meta>")
+
+        # Store another blob with one sibling
+        data2 = b"Second blob"
+        hash_str2, _ = store.store(data2)
+        store.store_sibling(hash_str2, "json", b'{"info": "data"}')
+
+        # Iterate with no_sibling=False
+        results = list(store.iter_files(no_sibling=False))
+
+        # Should have 2 entries (one per unique hash)
+        assert len(results) == 2
+
+        # Check the results
+        result_dict = {r[0]: r for r in results}
+
+        # First blob should have 3 siblings
+        assert hash_str in result_dict
+        _, _, siblings1 = result_dict[hash_str]
+        assert siblings1 == {"json", "txt", "xml"}
+
+        # Second blob should have 1 sibling
+        assert hash_str2 in result_dict
+        _, _, siblings2 = result_dict[hash_str2]
+        assert siblings2 == {"json"}
+
+    def test_iter_files_no_sibling_unchanged(self, temp_dir):
+        """Test that iter_files(no_sibling=True) still returns only hash and path."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store blob with sibling
+        data = b"Main blob"
+        hash_str, _ = store.store(data)
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+
+        # Iterate with no_sibling=True
+        results = list(store.iter_files(no_sibling=True))
+
+        # Should return tuple of 2 elements
+        assert len(results) == 1
+        assert len(results[0]) == 2
+        assert results[0][0] == hash_str
+
+    def test_iter_files_blob_without_siblings(self, temp_dir):
+        """Test that iter_files(no_sibling=False) returns empty set for blobs without siblings."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+
+        # Store blob without siblings
+        data = b"Lonely blob"
+        hash_str, _ = store.store(data)
+
+        # Iterate with no_sibling=False
+        results = list(store.iter_files(no_sibling=False))
+
+        assert len(results) == 1
+        hash_returned, path_returned, siblings = results[0]
+        assert hash_returned == hash_str
+        assert siblings == set()  # Empty set for no siblings

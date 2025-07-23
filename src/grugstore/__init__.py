@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import Optional, Tuple, Iterator
+from typing import Optional, Tuple, Iterator, BinaryIO, Set, Union
 import hashlib
 import base58
+import uuid
+import os
 
 
 class GrugStore:
@@ -54,6 +56,78 @@ class GrugStore:
         file_path.write_bytes(data)
 
         return hash_str, file_path
+
+    def stream(self, binary_file_like_obj: BinaryIO) -> str:
+        """Stream data from a file-like object, computing hash on the fly.
+
+        This method reads from the provided stream in chunks, computes the SHA-256
+        hash incrementally, and saves the data to a temporary file. Once complete,
+        it moves the file to the appropriate location based on the computed hash.
+
+        Args:
+            binary_file_like_obj: A binary file-like object supporting read().
+
+        Returns:
+            The base58-encoded SHA-256 hash of the streamed data.
+
+        Raises:
+            Exception: Any exception during streaming will cause the temporary
+                      file to be deleted.
+        """
+        # Create temp directory if it doesn't exist
+        temp_dir = self.base_dir / "_tmp"
+        temp_dir.mkdir(exist_ok=True)
+
+        # Generate a unique temporary filename
+        temp_filename = str(uuid.uuid4())
+        temp_path = temp_dir / temp_filename
+
+        # Initialize the hash object
+        hasher = hashlib.sha256()
+
+        try:
+            # Stream data to temporary file while computing hash
+            with open(temp_path, "wb") as temp_file:
+                chunk_size = 8192  # 8KB chunks
+                while True:
+                    chunk = binary_file_like_obj.read(chunk_size)
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+                    temp_file.write(chunk)
+
+            # Get the final hash
+            hash_bytes = hasher.digest()
+            hash_str = base58.b58encode(hash_bytes).decode("ascii")
+
+            # Build the final path
+            path_parts = []
+            for i in range(self.hierarchy_depth):
+                if i < len(hash_str):
+                    path_parts.append(hash_str[i])
+                else:
+                    path_parts.append("0")
+            path_parts.append(hash_str)
+
+            final_path = self.base_dir.joinpath(*path_parts)
+
+            # Create parent directories if needed
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move the temporary file to the final location
+            # If file already exists, just delete the temp file
+            if final_path.exists():
+                os.unlink(temp_path)
+            else:
+                os.rename(temp_path, final_path)
+
+            return hash_str
+
+        except Exception:
+            # Clean up temporary file on any exception
+            if temp_path.exists():
+                os.unlink(temp_path)
+            raise
 
     def load_bytes(self, hash_str: str) -> bytes:
         """Load a blob from the store by its hash.
@@ -168,15 +242,79 @@ class GrugStore:
         # Read and return the data
         return sibling_path.read_bytes()
 
-    def iter_files(self, no_sibling: bool = False) -> Iterator[Tuple[str, Path]]:
+    def iter_files(
+        self, no_sibling: bool = False
+    ) -> Iterator[Union[Tuple[str, Path], Tuple[str, Path, Set[str]]]]:
         """Iterate over all files in the store.
 
         Args:
-            no_sibling: If True, exclude sibling files from the iteration.
-                       Only return main blob files. Defaults to False.
+            no_sibling: If True, exclude sibling files from the iteration and
+                       return only (hash_string, file_path) tuples.
+                       If False, return (hash_string, file_path, sibling_extensions)
+                       tuples where sibling_extensions is a set of extensions.
+                       Defaults to False.
 
         Yields:
-            Tuples of (hash_string, file_path) for each file in the store.
+            If no_sibling=True: Tuples of (hash_string, file_path) for main blobs only.
+            If no_sibling=False: Tuples of (hash_string, file_path, sibling_extensions)
+                                for each unique hash, where sibling_extensions is a
+                                set of file extensions for that hash.
+        """
+        # Create the base directory if it doesn't exist
+        if not self.base_dir.exists():
+            return
+
+        if no_sibling:
+            # Original behavior - iterate only main blobs
+            for path in self.base_dir.rglob("*"):
+                if path.is_file():
+                    filename = path.name
+                    # Skip files with extensions (siblings)
+                    if "." not in filename:
+                        yield filename, path
+        else:
+            # New behavior - group by hash and collect sibling extensions
+            hash_info = {}  # hash -> (main_path, set_of_extensions)
+
+            # First pass: collect all files
+            for path in self.base_dir.rglob("*"):
+                if path.is_file():
+                    filename = path.name
+
+                    if "." in filename:
+                        # This is a sibling file
+                        parts = filename.split(".", 1)
+                        hash_str = parts[0]
+                        extension = parts[1]
+
+                        if hash_str not in hash_info:
+                            hash_info[hash_str] = (None, set())
+                        hash_info[hash_str][1].add(extension)
+                    else:
+                        # This is a main blob
+                        hash_str = filename
+                        if hash_str not in hash_info:
+                            hash_info[hash_str] = (path, set())
+                        else:
+                            hash_info[hash_str] = (path, hash_info[hash_str][1])
+
+            # Yield results
+            for hash_str, (main_path, extensions) in hash_info.items():
+                if main_path is not None:
+                    yield hash_str, main_path, extensions
+
+    def validate_tree(self, auto_delete: bool = False) -> Iterator[Path]:
+        """Validate all blobs in the store by checking their hashes.
+
+        This method iterates over all blob files (not siblings) and verifies
+        that the filename matches the SHA-256 hash of the file contents.
+
+        Args:
+            auto_delete: If True, automatically delete invalid files.
+                        Defaults to False.
+
+        Yields:
+            Paths to files that have incorrect hashes.
         """
         # Create the base directory if it doesn't exist
         if not self.base_dir.exists():
@@ -187,18 +325,34 @@ class GrugStore:
             if path.is_file():
                 filename = path.name
 
-                # If no_sibling is True, skip files with extensions (siblings)
-                if no_sibling and "." in filename:
+                # Skip sibling files (files with extensions)
+                if "." in filename:
                     continue
 
-                # For main blobs, the filename is the hash
-                # For siblings, extract the hash from before the extension
-                if "." in filename:
-                    hash_str = filename.split(".")[0]
-                else:
-                    hash_str = filename
+                # The filename should be the hash
+                expected_hash_str = filename
 
-                yield hash_str, path
+                try:
+                    # Read the file and compute its hash
+                    data = path.read_bytes()
+                    actual_hash = hashlib.sha256(data).digest()
+                    actual_hash_str = base58.b58encode(actual_hash).decode("ascii")
+
+                    # Check if the hash matches
+                    if actual_hash_str != expected_hash_str:
+                        # File has incorrect hash
+                        yield path
+                        if auto_delete:
+                            os.unlink(path)
+
+                except Exception:
+                    # If we can't read or process the file, it's invalid
+                    yield path
+                    if auto_delete:
+                        try:
+                            os.unlink(path)
+                        except Exception:
+                            pass
 
 
 def main() -> None:
