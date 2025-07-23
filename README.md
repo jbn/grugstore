@@ -16,16 +16,16 @@ the blob file.
 ```python
 from grugstore import GrugStore
 
-# Create a blob store
-blobstore = GrugStore('some-dir', hierarchy_depth=3)
+# Create a GrugStore instance
+gs = GrugStore('some-dir', hierarchy_depth=3)
 
 # Store a blob
-hash_str, file_path = blobstore.store(b'Hello, World!')
+hash_str, file_path = gs.store(b'Hello, World!')
 
 # Check if a blob exists
-if blobstore.exists(hash_str):
+if gs.exists(hash_str):
     # Load the blob
-    blob = blobstore.load_bytes(hash_str)
+    blob = gs.load_bytes(hash_str)
 ```
 
 ## Core Methods
@@ -34,83 +34,113 @@ if blobstore.exists(hash_str):
 
 ```python
 # Set a README for the store
-blobstore.set_readme("This store contains user avatars and profile images")
+gs.set_readme("This store contains user avatars and profile images")
 
 # Get the README content
-readme_content = blobstore.get_readme()
+readme_content = gs.get_readme()
 ```
 
 ### Storing and Loading Data
 
 ```python
 # Store raw bytes - returns (hash_string, file_path)
-hash_str, file_path = blobstore.store(b'Hello, World!')
+hash_str, file_path = gs.store(b'Hello, World!')
 
 # Stream from a file-like object (e.g., for large files)
 with open('large_file.bin', 'rb') as f:
-    hash_str = blobstore.stream(f)
+    hash_str = gs.stream(f)
 
 # Load data back
-data = blobstore.load_bytes(hash_str)
+data = gs.load_bytes(hash_str)
 ```
 
 ### Working with Sibling Files
 
 ```python
 # Store metadata/sibling files
-blobstore.store_sibling(hash_str, 'json', b'{"key": "value"}')
-blobstore.store_sibling(hash_str, 'txt', b'Additional notes')
+gs.store_sibling(hash_str, 'json', b'{"key": "value"}')
+gs.store_sibling(hash_str, 'txt', b'Additional notes')
 
 # Load sibling data
-metadata = blobstore.load_sibling_bytes(hash_str, 'json')
-notes = blobstore.load_sibling_bytes(hash_str, 'txt')
+metadata = gs.load_sibling_bytes(hash_str, 'json')
+notes = gs.load_sibling_bytes(hash_str, 'txt')
 ```
 
 ### Checking Existence
 
 ```python
 # Check if main blob exists
-if blobstore.exists(hash_str):
+if gs.exists(hash_str):
     print("Blob exists!")
 
 # Check if sibling file exists
-if blobstore.exists(hash_str, 'json'):
-    metadata = blobstore.load_sibling_bytes(hash_str, 'json')
+if gs.exists(hash_str, 'json'):
+    metadata = gs.load_sibling_bytes(hash_str, 'json')
 ```
 
 ### Path Operations
 
 ```python
 # Get path to a blob (without loading it)
-blob_path = blobstore.path_to(hash_str)
+blob_path = gs.path_to(hash_str)
 
 # Get path to a sibling file
-metadata_path = blobstore.path_to(hash_str, 'json')
+metadata_path = gs.path_to(hash_str, 'json')
 ```
 
 ### Iteration and Validation
 
 ```python
 # Iterate over all blobs (excluding siblings)
-for hash_str, file_path in blobstore.iter_files(no_sibling=True):
+for hash_str, file_path in gs.iter_files(no_sibling=True):
     print(f"Found blob: {hash_str}")
 
 # Iterate with sibling information
-for hash_str, file_path, sibling_extensions in blobstore.iter_files():
+for hash_str, file_path, sibling_extensions in gs.iter_files():
     print(f"Blob: {hash_str}")
     print(f"Siblings: {sibling_extensions}")  # e.g., {'json', 'txt'}
 
 # Validate integrity of all blobs
-for invalid_path in blobstore.validate_tree():
+for invalid_path in gs.validate_tree():
     print(f"Corrupted file: {invalid_path}")
 
 # Auto-delete corrupted files
-for invalid_path in blobstore.validate_tree(auto_delete=True):
+for invalid_path in gs.validate_tree(auto_delete=True):
     print(f"Deleted corrupted file: {invalid_path}")
 
 # Auto-delete corrupted files and their siblings
-for invalid_path in blobstore.validate_tree(auto_delete=True, delete_siblings=True):
+for invalid_path in gs.validate_tree(auto_delete=True, delete_siblings=True):
     print(f"Deleted corrupted file: {invalid_path}")
+```
+
+### Filtering and Copying
+
+```python
+# Create a filtered copy of the store
+def size_filter(hash_str, file_path):
+    # Only copy files smaller than 1MB
+    return file_path.stat().st_size < 1024 * 1024
+
+# Create a new store with only small files
+filtered_gs = gs.filtered_copy('filtered-dir', size_filter)
+
+# The filtered store contains the same hierarchy depth and README
+print(f"Hierarchy depth: {filtered_gs.hierarchy_depth}")
+print(f"README: {filtered_gs.get_readme()}")
+
+# Example: Copy only specific file types based on sibling extensions
+def has_json_metadata(hash_str, file_path):
+    # Check if this blob has a JSON sibling
+    return gs.exists(hash_str, 'json')
+
+json_only_gs = gs.filtered_copy('json-only-dir', has_json_metadata)
+
+# Example: Copy files matching certain hash patterns
+def hash_prefix_filter(hash_str, file_path):
+    # Only copy files whose hash starts with 'Q'
+    return hash_str.startswith('Q')
+
+q_files_gs = gs.filtered_copy('q-files-dir', hash_prefix_filter)
 ```
 
 ## File Layout
