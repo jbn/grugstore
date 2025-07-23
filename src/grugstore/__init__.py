@@ -313,67 +313,53 @@ class GrugStore:
         Yields:
             Paths to files that have incorrect hashes.
         """
-        # Create the base directory if it doesn't exist
-        if not self.base_dir.exists():
-            return
+        # Use iter_files to iterate over all main blobs (excluding siblings)
+        for expected_hash_str, file_path in self.iter_files(no_sibling=True):
+            try:
+                # Read the file and compute its hash
+                data = file_path.read_bytes()
+                actual_hash = hashlib.sha256(data).digest()
+                actual_hash_str = base58.b58encode(actual_hash).decode("ascii")
 
-        # Walk through all files in the store
-        for path in self.base_dir.rglob("*"):
-            if path.is_file():
-                filename = path.name
-
-                # Skip sibling files (files with extensions)
-                if "." in filename:
-                    continue
-
-                # The filename should be the hash
-                expected_hash_str = filename
-
-                try:
-                    # Read the file and compute its hash
-                    data = path.read_bytes()
-                    actual_hash = hashlib.sha256(data).digest()
-                    actual_hash_str = base58.b58encode(actual_hash).decode("ascii")
-
-                    # Check if the hash matches
-                    if actual_hash_str != expected_hash_str:
-                        # File has incorrect hash
-                        yield path
-                        if auto_delete:
-                            os.unlink(path)
-                            
-                            # Delete sibling files if requested
-                            if delete_siblings:
-                                # Find and delete all sibling files
-                                parent_dir = path.parent
-                                sibling_pattern = f"{expected_hash_str}.*"
-                                for sibling in parent_dir.glob(sibling_pattern):
-                                    if sibling.is_file() and sibling != path:
-                                        try:
-                                            os.unlink(sibling)
-                                        except Exception:
-                                            pass
-
-                except Exception:
-                    # If we can't read or process the file, it's invalid
-                    yield path
+                # Check if the hash matches
+                if actual_hash_str != expected_hash_str:
+                    # File has incorrect hash
+                    yield file_path
                     if auto_delete:
-                        try:
-                            os.unlink(path)
-                            
-                            # Delete sibling files if requested
-                            if delete_siblings:
-                                # Find and delete all sibling files
-                                parent_dir = path.parent
-                                sibling_pattern = f"{expected_hash_str}.*"
-                                for sibling in parent_dir.glob(sibling_pattern):
-                                    if sibling.is_file() and sibling != path:
-                                        try:
-                                            os.unlink(sibling)
-                                        except Exception:
-                                            pass
-                        except Exception:
-                            pass
+                        os.unlink(file_path)
+                        
+                        # Delete sibling files if requested
+                        if delete_siblings:
+                            # Find and delete all sibling files
+                            parent_dir = file_path.parent
+                            sibling_pattern = f"{expected_hash_str}.*"
+                            for sibling in parent_dir.glob(sibling_pattern):
+                                if sibling.is_file() and sibling != file_path:
+                                    try:
+                                        os.unlink(sibling)
+                                    except Exception:
+                                        pass
+
+            except Exception:
+                # If we can't read or process the file, it's invalid
+                yield file_path
+                if auto_delete:
+                    try:
+                        os.unlink(file_path)
+                        
+                        # Delete sibling files if requested
+                        if delete_siblings:
+                            # Find and delete all sibling files
+                            parent_dir = file_path.parent
+                            sibling_pattern = f"{expected_hash_str}.*"
+                            for sibling in parent_dir.glob(sibling_pattern):
+                                if sibling.is_file() and sibling != file_path:
+                                    try:
+                                        os.unlink(sibling)
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
 
 
 def main() -> None:
