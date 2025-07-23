@@ -107,6 +107,10 @@ for invalid_path in blobstore.validate_tree():
 # Auto-delete corrupted files
 for invalid_path in blobstore.validate_tree(auto_delete=True):
     print(f"Deleted corrupted file: {invalid_path}")
+
+# Auto-delete corrupted files and their siblings
+for invalid_path in blobstore.validate_tree(auto_delete=True, delete_siblings=True):
+    print(f"Deleted corrupted file: {invalid_path}")
 ```
 
 ## File Layout
@@ -118,7 +122,6 @@ some-dir/
 ├── _meta/
 │   └── README          # Optional store-level documentation
 ├── _tmp/                  # Temporary directory for atomic file operations
-│   └── .gitkeep          # Ensures directory exists in git
 ├── 2/
 │   └── X/
 │       ├── 2XaBcD...xyz  # The actual blob file (no extension)
