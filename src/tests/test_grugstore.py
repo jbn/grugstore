@@ -6,8 +6,6 @@ from grugstore import GrugStore
 import hashlib
 import base58
 import io
-import uuid
-import os
 
 
 class TestGrugStore:
