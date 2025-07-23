@@ -7,6 +7,7 @@ import hashlib
 import base58
 import io
 import uuid
+import os
 
 
 class TestGrugStore:
@@ -755,3 +756,154 @@ class TestGrugStore:
         
         # Non-existent extension should not exist
         assert store.exists(hash_str, "pdf") is False
+
+    def test_validate_tree_delete_siblings_with_corrupted_blob(self, temp_dir):
+        """Test that validate_tree with delete_siblings removes siblings when blob is corrupted."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store valid data with siblings
+        data = b"Original data with siblings"
+        hash_str, file_path = store.store(data)
+        
+        # Store sibling files
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+        store.store_sibling(hash_str, "txt", b"text metadata")
+        store.store_sibling(hash_str, "xml", b"<metadata>xml</metadata>")
+        
+        # Verify all files exist
+        assert file_path.exists()
+        assert store.exists(hash_str, "json")
+        assert store.exists(hash_str, "txt")
+        assert store.exists(hash_str, "xml")
+        
+        # Corrupt the main blob file
+        file_path.write_bytes(b"Corrupted data")
+        
+        # Validate tree with auto_delete and delete_siblings
+        invalid_files = list(store.validate_tree(auto_delete=True, delete_siblings=True))
+        
+        # Should report the invalid file
+        assert len(invalid_files) == 1
+        assert invalid_files[0] == file_path
+        
+        # Main blob should be deleted
+        assert not file_path.exists()
+        
+        # All sibling files should also be deleted
+        assert not store.exists(hash_str, "json")
+        assert not store.exists(hash_str, "txt")
+        assert not store.exists(hash_str, "xml")
+
+    def test_validate_tree_delete_siblings_false_keeps_siblings(self, temp_dir):
+        """Test that validate_tree without delete_siblings keeps siblings when blob is deleted."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store valid data with siblings
+        data = b"Original data with siblings"
+        hash_str, file_path = store.store(data)
+        
+        # Store sibling files
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+        store.store_sibling(hash_str, "txt", b"text metadata")
+        
+        # Verify all files exist
+        assert file_path.exists()
+        assert store.exists(hash_str, "json")
+        assert store.exists(hash_str, "txt")
+        
+        # Corrupt the main blob file
+        file_path.write_bytes(b"Corrupted data")
+        
+        # Validate tree with auto_delete but without delete_siblings
+        invalid_files = list(store.validate_tree(auto_delete=True, delete_siblings=False))
+        
+        # Should report the invalid file
+        assert len(invalid_files) == 1
+        assert invalid_files[0] == file_path
+        
+        # Main blob should be deleted
+        assert not file_path.exists()
+        
+        # Sibling files should still exist
+        assert store.exists(hash_str, "json")
+        assert store.exists(hash_str, "txt")
+
+    def test_validate_tree_delete_siblings_without_auto_delete(self, temp_dir):
+        """Test that delete_siblings has no effect when auto_delete is False."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store valid data with siblings
+        data = b"Original data"
+        hash_str, file_path = store.store(data)
+        store.store_sibling(hash_str, "json", b'{"meta": "data"}')
+        
+        # Corrupt the main blob file
+        file_path.write_bytes(b"Corrupted data")
+        
+        # Validate tree with delete_siblings but without auto_delete
+        invalid_files = list(store.validate_tree(auto_delete=False, delete_siblings=True))
+        
+        # Should report the invalid file
+        assert len(invalid_files) == 1
+        
+        # Nothing should be deleted
+        assert file_path.exists()
+        assert store.exists(hash_str, "json")
+
+    def test_validate_tree_delete_siblings_handles_missing_siblings(self, temp_dir):
+        """Test that delete_siblings handles cases where siblings don't exist."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store blob without siblings
+        data = b"Data without siblings"
+        hash_str, file_path = store.store(data)
+        
+        # Corrupt the main blob file
+        file_path.write_bytes(b"Corrupted data")
+        
+        # This should not raise any errors even though there are no siblings
+        invalid_files = list(store.validate_tree(auto_delete=True, delete_siblings=True))
+        
+        assert len(invalid_files) == 1
+        assert not file_path.exists()
+
+    def test_validate_tree_delete_siblings_with_permission_error(self, temp_dir):
+        """Test delete_siblings when main blob exists but has wrong content."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Store a valid blob with siblings
+        data = b"Valid data"
+        hash_str, file_path = store.store(data)
+        
+        # Create sibling files
+        store.store_sibling(hash_str, "json", b'{"data": "value"}')
+        store.store_sibling(hash_str, "txt", b"text data")
+        
+        # Now manually create a file with wrong hash but correct name structure
+        # This simulates a corrupted file that will fail hash validation
+        fake_hash = "FakeHash123"
+        fake_path = store.path_to(fake_hash)
+        fake_path.parent.mkdir(parents=True, exist_ok=True)
+        fake_path.write_bytes(b"This content doesn't match the hash")
+        
+        # Create siblings for the fake file
+        sibling_json = fake_path.parent / f"{fake_hash}.json"
+        sibling_txt = fake_path.parent / f"{fake_hash}.txt"
+        sibling_json.write_bytes(b'{"fake": "data"}')
+        sibling_txt.write_bytes(b"fake text")
+        
+        # Validate with delete_siblings
+        invalid_files = list(store.validate_tree(auto_delete=True, delete_siblings=True))
+        
+        # Should find the fake file as invalid
+        assert fake_path in invalid_files
+        
+        # Fake file and its siblings should be deleted
+        assert not fake_path.exists()
+        assert not sibling_json.exists()
+        assert not sibling_txt.exists()
+        
+        # Original valid file and its siblings should still exist
+        assert file_path.exists()
+        assert store.exists(hash_str, "json")
+        assert store.exists(hash_str, "txt")

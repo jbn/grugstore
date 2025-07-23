@@ -297,7 +297,7 @@ class GrugStore:
                 if main_path is not None:
                     yield hash_str, main_path, extensions
 
-    def validate_tree(self, auto_delete: bool = False) -> Iterator[Path]:
+    def validate_tree(self, auto_delete: bool = False, delete_siblings: bool = False) -> Iterator[Path]:
         """Validate all blobs in the store by checking their hashes.
 
         This method iterates over all blob files (not siblings) and verifies
@@ -306,6 +306,9 @@ class GrugStore:
         Args:
             auto_delete: If True, automatically delete invalid files.
                         Defaults to False.
+            delete_siblings: If True and auto_delete is True, also delete
+                           sibling files when the main blob is invalid.
+                           Defaults to False.
 
         Yields:
             Paths to files that have incorrect hashes.
@@ -338,6 +341,18 @@ class GrugStore:
                         yield path
                         if auto_delete:
                             os.unlink(path)
+                            
+                            # Delete sibling files if requested
+                            if delete_siblings:
+                                # Find and delete all sibling files
+                                parent_dir = path.parent
+                                sibling_pattern = f"{expected_hash_str}.*"
+                                for sibling in parent_dir.glob(sibling_pattern):
+                                    if sibling.is_file() and sibling != path:
+                                        try:
+                                            os.unlink(sibling)
+                                        except Exception:
+                                            pass
 
                 except Exception:
                     # If we can't read or process the file, it's invalid
@@ -345,6 +360,18 @@ class GrugStore:
                     if auto_delete:
                         try:
                             os.unlink(path)
+                            
+                            # Delete sibling files if requested
+                            if delete_siblings:
+                                # Find and delete all sibling files
+                                parent_dir = path.parent
+                                sibling_pattern = f"{expected_hash_str}.*"
+                                for sibling in parent_dir.glob(sibling_pattern):
+                                    if sibling.is_file() and sibling != path:
+                                        try:
+                                            os.unlink(sibling)
+                                        except Exception:
+                                            pass
                         except Exception:
                             pass
 
