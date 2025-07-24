@@ -26,6 +26,7 @@ check: lint typecheck test
 
 .PHONY: build
 build:
+	rm -rf dist/
 	# First bump the version - you can use: uv version --bump patch/minor/major
 	uv build
 
