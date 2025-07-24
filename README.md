@@ -52,6 +52,17 @@ with open('large_file.bin', 'rb') as f:
 
 # Load data back
 data = gs.load_bytes(hash_str)
+
+# Read data using context manager (for streaming large files)
+with gs.read(hash_str) as f:
+    content = f.read()  # or read in chunks
+
+# Write data using context manager with automatic hashing
+with gs.write() as (f, get_hash):
+    f.write(b'Hello, World!')
+    f.write(b' More data...')
+# After the context exits, get the hash
+hash_str = get_hash()
 ```
 
 ### Working with Sibling Files
@@ -159,6 +170,16 @@ def hash_prefix_filter(hash_str, file_path):
     return hash_str.startswith('Q')
 
 q_files_gs = gs.filtered_copy('q-files-dir', hash_prefix_filter)
+```
+
+### String Representations
+
+```python
+# Get a human-readable string representation
+print(gs)  # Output: GrugStore(/path/to/store)
+
+# Get a detailed representation (useful for debugging)
+print(repr(gs))  # Output: GrugStore(base_dir=PosixPath('/path/to/store'), hierarchy_depth=3)
 ```
 
 ## File Layout

@@ -4,6 +4,7 @@ import hashlib
 import base58
 import uuid
 import os
+from contextlib import contextmanager
 
 
 class GrugStore:
@@ -23,6 +24,14 @@ class GrugStore:
         # Create _meta directory if it doesn't exist
         self._meta_dir = self.base_dir / "_meta"
         self._meta_dir.mkdir(parents=True, exist_ok=True)
+    
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the GrugStore."""
+        return f"GrugStore({self.base_dir})"
+    
+    def __repr__(self) -> str:
+        """Return a detailed string representation of the GrugStore."""
+        return f"GrugStore(base_dir={self.base_dir!r}, hierarchy_depth={self.hierarchy_depth})"
 
     def _hash_bytes(self, data: bytes) -> str:
         """Calculate the base58-encoded SHA-256 hash of bytes.
@@ -537,6 +546,117 @@ class GrugStore:
         shutil.move(str(input_path), str(target_path))
         
         return hash_str, target_path
+
+    @contextmanager
+    def read(self, hash_str: str):
+        """Open a blob as a file object for reading in binary mode.
+        
+        This method returns a context manager that opens the actual file
+        for reading in binary mode.
+        
+        Args:
+            hash_str: The base58-encoded SHA-256 hash of the blob to read.
+            
+        Yields:
+            An open file object in binary read mode.
+            
+        Raises:
+            FileNotFoundError: If the blob does not exist in the store.
+            
+        Example:
+            with gs.read(hash_str) as f:
+                content = f.read()
+        """
+        file_path = self.path_to(hash_str)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"Blob with hash {hash_str} not found in store")
+        
+        with open(file_path, 'rb') as f:
+            yield f
+
+    @contextmanager
+    def write(self):
+        """Create a new blob by writing to a temporary file.
+        
+        This method returns a context manager that provides a file object for
+        writing. Data is written to a temporary file, and upon successful
+        completion (no exceptions), the file is moved to its final location
+        based on the computed hash.
+        
+        Yields:
+            A tuple of (file_object, hash_getter) where:
+            - file_object: An open file object in binary write mode
+            - hash_getter: A callable that returns the hash string when called
+                          (only valid after the file is closed)
+        
+        Returns:
+            The base58-encoded SHA-256 hash of the written data (after context exits).
+            
+        Example:
+            with gs.write() as (f, get_hash):
+                f.write(b"Hello, world!")
+            hash_str = get_hash()
+        """
+        # Create temp directory if it doesn't exist
+        temp_dir = self.base_dir / "_tmp"
+        temp_dir.mkdir(exist_ok=True)
+
+        # Generate a unique temporary filename
+        temp_filename = str(uuid.uuid4())
+        temp_path = temp_dir / temp_filename
+
+        # Initialize the hash object
+        hasher = hashlib.sha256()
+        hash_str = None
+
+        # Create a wrapper that updates the hash as data is written
+        class HashingFileWrapper:
+            def __init__(self, file_obj):
+                self.file_obj = file_obj
+                
+            def write(self, data):
+                hasher.update(data)
+                return self.file_obj.write(data)
+                
+            def __getattr__(self, name):
+                return getattr(self.file_obj, name)
+
+        try:
+            with open(temp_path, "wb") as temp_file:
+                wrapped_file = HashingFileWrapper(temp_file)
+                
+                def get_hash():
+                    nonlocal hash_str
+                    if hash_str is None:
+                        # File must be closed first
+                        raise RuntimeError("Cannot get hash until file is closed")
+                    return hash_str
+                
+                yield wrapped_file, get_hash
+
+            # Get the final hash
+            hash_bytes = hasher.digest()
+            hash_str = base58.b58encode(hash_bytes).decode("ascii")
+
+            # Get the final path using path_to method
+            final_path = self.path_to(hash_str)
+
+            # Create parent directories if needed
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move the temporary file to the final location
+            # If file already exists, just delete the temp file
+            if final_path.exists():
+                os.unlink(temp_path)
+            else:
+                os.rename(temp_path, final_path)
+
+        except Exception:
+            # Clean up temporary file on any exception
+            if temp_path.exists():
+                os.unlink(temp_path)
+            raise
 
 
 def main() -> None:
