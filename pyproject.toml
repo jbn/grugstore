@@ -1,6 +1,6 @@
 [project]
 name = "grugstore"
-version = "0.1.1"
+version = "0.1.2"
 description = "Simplest possible content-addressable file store for blobs."
 readme = "README.md"
 authors = [
