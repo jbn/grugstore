@@ -20,15 +20,15 @@ class GrugStore:
         """
         self.base_dir = Path(base_dir)
         self.hierarchy_depth = hierarchy_depth
-        
+
         # Create _meta directory if it doesn't exist
         self._meta_dir = self.base_dir / "_meta"
         self._meta_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def __str__(self) -> str:
         """Return a human-readable string representation of the GrugStore."""
         return f"GrugStore({self.base_dir})"
-    
+
     def __repr__(self) -> str:
         """Return a detailed string representation of the GrugStore."""
         return f"GrugStore(base_dir={self.base_dir!r}, hierarchy_depth={self.hierarchy_depth})"
@@ -55,10 +55,10 @@ class GrugStore:
             The base58-encoded SHA-256 hash string.
         """
         hasher = hashlib.sha256()
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             while chunk := f.read(8192):
                 hasher.update(chunk)
-        
+
         hash_bytes = hasher.digest()
         return base58.b58encode(hash_bytes).decode("ascii")
 
@@ -344,7 +344,9 @@ class GrugStore:
                 if main_path is not None:
                     yield hash_str, main_path, extensions
 
-    def validate_tree(self, auto_delete: bool = False, delete_siblings: bool = False) -> Iterator[Path]:
+    def validate_tree(
+        self, auto_delete: bool = False, delete_siblings: bool = False
+    ) -> Iterator[Path]:
         """Validate all blobs in the store by checking their hashes.
 
         This method iterates over all blob files (not siblings) and verifies
@@ -372,7 +374,7 @@ class GrugStore:
                     yield file_path
                     if auto_delete:
                         os.unlink(file_path)
-                        
+
                         # Delete sibling files if requested
                         if delete_siblings:
                             # Find and delete all sibling files
@@ -391,7 +393,7 @@ class GrugStore:
                 if auto_delete:
                     try:
                         os.unlink(file_path)
-                        
+
                         # Delete sibling files if requested
                         if delete_siblings:
                             # Find and delete all sibling files
@@ -408,19 +410,19 @@ class GrugStore:
 
     def set_readme(self, content: str) -> None:
         """Set the README content for this GrugStore.
-        
+
         Args:
             content: The README content to store.
         """
         readme_path = self._meta_dir / "README"
         readme_path.write_text(content, encoding="utf-8")
-    
+
     def get_readme(self) -> str:
         """Get the README content for this GrugStore.
-        
+
         Returns:
             The README content, or empty string if not set.
-        
+
         Raises:
             FileNotFoundError: If the README file does not exist.
         """
@@ -444,7 +446,9 @@ class GrugStore:
         new_gs = GrugStore(new_gs_dir, self.hierarchy_depth)
 
         # Copy filtered files and their siblings
-        for hash_str, file_path, sibling_extensions in self.iter_files(no_sibling=False):
+        for hash_str, file_path, sibling_extensions in self.iter_files(
+            no_sibling=False
+        ):
             # Check if this file passes the filter
             if filter_func(hash_str, file_path):
                 # Copy the main blob
@@ -484,28 +488,28 @@ class GrugStore:
             FileNotFoundError: If the input file does not exist.
         """
         import shutil
-        
+
         input_path = Path(input_path)
-        
+
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
-        
+
         # Calculate hash of the file
         hash_str = self._hash_file(input_path)
-        
+
         # Get target path
         target_path = self.path_to(hash_str)
-        
+
         # If file already exists, just return
         if target_path.exists():
             return hash_str, target_path
-        
+
         # Create parent directories if needed
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Copy the file
         shutil.copy2(input_path, target_path)
-        
+
         return hash_str, target_path
 
     def move_file(self, input_path: Union[str, Path]) -> Tuple[str, Path]:
@@ -522,77 +526,77 @@ class GrugStore:
             FileNotFoundError: If the input file does not exist.
         """
         import shutil
-        
+
         input_path = Path(input_path)
-        
+
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
-        
+
         # Calculate hash of the file
         hash_str = self._hash_file(input_path)
-        
+
         # Get target path
         target_path = self.path_to(hash_str)
-        
+
         # If file already exists, just delete the source
         if target_path.exists():
             os.unlink(input_path)
             return hash_str, target_path
-        
+
         # Create parent directories if needed
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Move the file
         shutil.move(str(input_path), str(target_path))
-        
+
         return hash_str, target_path
 
     @contextmanager
     def read(self, hash_str: str):
         """Open a blob as a file object for reading in binary mode.
-        
+
         This method returns a context manager that opens the actual file
         for reading in binary mode.
-        
+
         Args:
             hash_str: The base58-encoded SHA-256 hash of the blob to read.
-            
+
         Yields:
             An open file object in binary read mode.
-            
+
         Raises:
             FileNotFoundError: If the blob does not exist in the store.
-            
+
         Example:
             with gs.read(hash_str) as f:
                 content = f.read()
         """
         file_path = self.path_to(hash_str)
-        
+
         if not file_path.exists():
             raise FileNotFoundError(f"Blob with hash {hash_str} not found in store")
-        
-        with open(file_path, 'rb') as f:
+
+        with open(file_path, "rb") as f:
             yield f
 
     @contextmanager
     def write(self):
         """Create a new blob by writing to a temporary file.
-        
+
         This method returns a context manager that provides a file object for
         writing. Data is written to a temporary file, and upon successful
         completion (no exceptions), the file is moved to its final location
         based on the computed hash.
-        
+
         Yields:
             A tuple of (file_object, hash_getter) where:
             - file_object: An open file object in binary write mode
             - hash_getter: A callable that returns the hash string when called
                           (only valid after the file is closed)
-        
+
         Returns:
             The base58-encoded SHA-256 hash of the written data (after context exits).
-            
+
         Example:
             with gs.write() as (f, get_hash):
                 f.write(b"Hello, world!")
@@ -614,25 +618,25 @@ class GrugStore:
         class HashingFileWrapper:
             def __init__(self, file_obj):
                 self.file_obj = file_obj
-                
+
             def write(self, data):
                 hasher.update(data)
                 return self.file_obj.write(data)
-                
+
             def __getattr__(self, name):
                 return getattr(self.file_obj, name)
 
         try:
             with open(temp_path, "wb") as temp_file:
                 wrapped_file = HashingFileWrapper(temp_file)
-                
+
                 def get_hash():
                     nonlocal hash_str
                     if hash_str is None:
                         # File must be closed first
                         raise RuntimeError("Cannot get hash until file is closed")
                     return hash_str
-                
+
                 yield wrapped_file, get_hash
 
             # Get the final hash
