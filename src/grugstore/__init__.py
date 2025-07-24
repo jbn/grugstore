@@ -24,6 +24,35 @@ class GrugStore:
         self._meta_dir = self.base_dir / "_meta"
         self._meta_dir.mkdir(parents=True, exist_ok=True)
 
+    def _hash_bytes(self, data: bytes) -> str:
+        """Calculate the base58-encoded SHA-256 hash of bytes.
+
+        Args:
+            data: The bytes to hash.
+
+        Returns:
+            The base58-encoded SHA-256 hash string.
+        """
+        hash_bytes = hashlib.sha256(data).digest()
+        return base58.b58encode(hash_bytes).decode("ascii")
+
+    def _hash_file(self, file_path: Path) -> str:
+        """Calculate the base58-encoded SHA-256 hash of a file.
+
+        Args:
+            file_path: Path to the file to hash.
+
+        Returns:
+            The base58-encoded SHA-256 hash string.
+        """
+        hasher = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(8192):
+                hasher.update(chunk)
+        
+        hash_bytes = hasher.digest()
+        return base58.b58encode(hash_bytes).decode("ascii")
+
     def store(self, data: bytes) -> Tuple[str, Path]:
         """Store a blob of data in the content-addressable store.
 
@@ -35,8 +64,7 @@ class GrugStore:
             SHA-256 hash of the data and file_path is the Path where the data was stored.
         """
         # Calculate SHA-256 hash
-        hash_bytes = hashlib.sha256(data).digest()
-        hash_str = base58.b58encode(hash_bytes).decode("ascii")
+        hash_str = self._hash_bytes(data)
 
         # Get the path using path_to method
         file_path = self.path_to(hash_str)
@@ -327,9 +355,7 @@ class GrugStore:
         for expected_hash_str, file_path in self.iter_files(no_sibling=True):
             try:
                 # Read the file and compute its hash
-                data = file_path.read_bytes()
-                actual_hash = hashlib.sha256(data).digest()
-                actual_hash_str = base58.b58encode(actual_hash).decode("ascii")
+                actual_hash_str = self._hash_file(file_path)
 
                 # Check if the hash matches
                 if actual_hash_str != expected_hash_str:
@@ -434,6 +460,83 @@ class GrugStore:
             pass
 
         return new_gs
+
+    def copy_file(self, input_path: Union[str, Path]) -> Tuple[str, Path]:
+        """Copy a file into the GrugStore.
+
+        Args:
+            input_path: Path to the file to copy.
+
+        Returns:
+            A tuple of (hash_string, file_path) where hash_string is the base58-encoded
+            SHA-256 hash of the file and file_path is the Path where the file was stored.
+
+        Raises:
+            FileNotFoundError: If the input file does not exist.
+        """
+        import shutil
+        
+        input_path = Path(input_path)
+        
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        
+        # Calculate hash of the file
+        hash_str = self._hash_file(input_path)
+        
+        # Get target path
+        target_path = self.path_to(hash_str)
+        
+        # If file already exists, just return
+        if target_path.exists():
+            return hash_str, target_path
+        
+        # Create parent directories if needed
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Copy the file
+        shutil.copy2(input_path, target_path)
+        
+        return hash_str, target_path
+
+    def move_file(self, input_path: Union[str, Path]) -> Tuple[str, Path]:
+        """Move a file into the GrugStore.
+
+        Args:
+            input_path: Path to the file to move.
+
+        Returns:
+            A tuple of (hash_string, file_path) where hash_string is the base58-encoded
+            SHA-256 hash of the file and file_path is the Path where the file was stored.
+
+        Raises:
+            FileNotFoundError: If the input file does not exist.
+        """
+        import shutil
+        
+        input_path = Path(input_path)
+        
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        
+        # Calculate hash of the file
+        hash_str = self._hash_file(input_path)
+        
+        # Get target path
+        target_path = self.path_to(hash_str)
+        
+        # If file already exists, just delete the source
+        if target_path.exists():
+            os.unlink(input_path)
+            return hash_str, target_path
+        
+        # Create parent directories if needed
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Move the file
+        shutil.move(str(input_path), str(target_path))
+        
+        return hash_str, target_path
 
 
 def main() -> None:

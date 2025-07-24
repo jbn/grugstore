@@ -1245,3 +1245,206 @@ class TestGrugStore:
         # Both should have same content
         assert dest_store1.load_bytes(hash_str) == dest_store2.load_bytes(hash_str)
         assert dest_store1.load_sibling_bytes(hash_str, "json") == dest_store2.load_sibling_bytes(hash_str, "json")
+
+    def test_copy_file_basic(self, temp_dir):
+        """Test basic copy_file functionality."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Create a test file
+        test_file = Path(temp_dir) / "test.txt"
+        test_data = b"This is test data for copy_file"
+        test_file.write_bytes(test_data)
+        
+        # Copy the file to GrugStore
+        hash_str, store_path = store.copy_file(test_file)
+        
+        # Verify the hash is correct
+        expected_hash = hashlib.sha256(test_data).digest()
+        expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
+        assert hash_str == expected_hash_str
+        
+        # Verify the file exists in store
+        assert store_path.exists()
+        assert store.load_bytes(hash_str) == test_data
+        
+        # Verify original file still exists
+        assert test_file.exists()
+        assert test_file.read_bytes() == test_data
+
+    def test_copy_file_nonexistent(self, temp_dir):
+        """Test copy_file with non-existent file."""
+        store = GrugStore(temp_dir)
+        
+        nonexistent_file = Path(temp_dir) / "does_not_exist.txt"
+        
+        with pytest.raises(FileNotFoundError) as excinfo:
+            store.copy_file(nonexistent_file)
+        
+        assert "Input file not found" in str(excinfo.value)
+
+    def test_copy_file_already_exists(self, temp_dir):
+        """Test copy_file when target already exists in store."""
+        store = GrugStore(temp_dir)
+        
+        # Create a test file
+        test_file = Path(temp_dir) / "test.txt"
+        test_data = b"Duplicate data"
+        test_file.write_bytes(test_data)
+        
+        # First copy
+        hash_str1, path1 = store.copy_file(test_file)
+        
+        # Modify the timestamp to detect if file is overwritten
+        original_mtime = path1.stat().st_mtime_ns
+        
+        # Second copy of same content
+        hash_str2, path2 = store.copy_file(test_file)
+        
+        # Should return same hash and path
+        assert hash_str1 == hash_str2
+        assert path1 == path2
+        
+        # File should not be overwritten (mtime unchanged)
+        assert path1.stat().st_mtime_ns == original_mtime
+
+    def test_copy_file_large_file(self, temp_dir):
+        """Test copy_file with a large file."""
+        store = GrugStore(temp_dir)
+        
+        # Create a large test file (5MB)
+        test_file = Path(temp_dir) / "large.bin"
+        large_data = b"x" * (5 * 1024 * 1024)
+        test_file.write_bytes(large_data)
+        
+        # Copy the file
+        hash_str, store_path = store.copy_file(test_file)
+        
+        # Verify it was copied correctly
+        assert store.load_bytes(hash_str) == large_data
+        assert test_file.exists()  # Original still exists
+
+    def test_move_file_basic(self, temp_dir):
+        """Test basic move_file functionality."""
+        store = GrugStore(temp_dir, hierarchy_depth=3)
+        
+        # Create a test file
+        test_file = Path(temp_dir) / "test_move.txt"
+        test_data = b"This is test data for move_file"
+        test_file.write_bytes(test_data)
+        
+        # Move the file to GrugStore
+        hash_str, store_path = store.move_file(test_file)
+        
+        # Verify the hash is correct
+        expected_hash = hashlib.sha256(test_data).digest()
+        expected_hash_str = base58.b58encode(expected_hash).decode("ascii")
+        assert hash_str == expected_hash_str
+        
+        # Verify the file exists in store
+        assert store_path.exists()
+        assert store.load_bytes(hash_str) == test_data
+        
+        # Verify original file no longer exists
+        assert not test_file.exists()
+
+    def test_move_file_nonexistent(self, temp_dir):
+        """Test move_file with non-existent file."""
+        store = GrugStore(temp_dir)
+        
+        nonexistent_file = Path(temp_dir) / "does_not_exist.txt"
+        
+        with pytest.raises(FileNotFoundError) as excinfo:
+            store.move_file(nonexistent_file)
+        
+        assert "Input file not found" in str(excinfo.value)
+
+    def test_move_file_already_exists(self, temp_dir):
+        """Test move_file when target already exists in store."""
+        store = GrugStore(temp_dir)
+        
+        # First, store some data
+        test_data = b"Existing data"
+        hash_str, existing_path = store.store(test_data)
+        
+        # Create a file with same content
+        test_file = Path(temp_dir) / "duplicate.txt"
+        test_file.write_bytes(test_data)
+        
+        # Move the file
+        hash_str2, path2 = store.move_file(test_file)
+        
+        # Should return same hash and path
+        assert hash_str == hash_str2
+        assert existing_path == path2
+        
+        # Original file should be deleted
+        assert not test_file.exists()
+        
+        # Store should still have the data
+        assert store.load_bytes(hash_str) == test_data
+
+    def test_move_file_large_file(self, temp_dir):
+        """Test move_file with a large file."""
+        store = GrugStore(temp_dir)
+        
+        # Create a large test file (5MB)
+        test_file = Path(temp_dir) / "large_move.bin"
+        large_data = b"y" * (5 * 1024 * 1024)
+        test_file.write_bytes(large_data)
+        
+        # Move the file
+        hash_str, store_path = store.move_file(test_file)
+        
+        # Verify it was moved correctly
+        assert store.load_bytes(hash_str) == large_data
+        assert not test_file.exists()  # Original deleted
+
+    def test_copy_and_move_string_paths(self, temp_dir):
+        """Test that copy_file and move_file work with string paths."""
+        store = GrugStore(temp_dir)
+        
+        # Test with string path for copy_file
+        test_file1 = str(Path(temp_dir) / "string_copy.txt")
+        with open(test_file1, 'wb') as f:
+            f.write(b"String path copy test")
+        
+        hash_str1, _ = store.copy_file(test_file1)
+        assert store.exists(hash_str1)
+        assert Path(test_file1).exists()
+        
+        # Test with string path for move_file
+        test_file2 = str(Path(temp_dir) / "string_move.txt")
+        with open(test_file2, 'wb') as f:
+            f.write(b"String path move test")
+        
+        hash_str2, _ = store.move_file(test_file2)
+        assert store.exists(hash_str2)
+        assert not Path(test_file2).exists()
+
+    def test_copy_move_preserve_file_structure(self, temp_dir):
+        """Test that copy/move preserve the correct directory structure."""
+        store = GrugStore(temp_dir, hierarchy_depth=4)
+        
+        # Create test files
+        copy_file = Path(temp_dir) / "copy_struct.txt"
+        move_file = Path(temp_dir) / "move_struct.txt"
+        
+        test_data = b"Structure test data"
+        copy_file.write_bytes(test_data)
+        move_file.write_bytes(test_data)
+        
+        # Copy and move
+        hash_str1, path1 = store.copy_file(copy_file)
+        hash_str2, path2 = store.move_file(move_file)
+        
+        # Both should have same hash and path (same content)
+        assert hash_str1 == hash_str2
+        assert path1 == path2
+        
+        # Verify directory structure
+        path_parts = path1.relative_to(store.base_dir).parts
+        assert len(path_parts) == 5  # 4 hierarchy levels + filename
+        
+        # Verify the path follows the hash
+        for i in range(4):
+            assert path_parts[i] == hash_str1[i]

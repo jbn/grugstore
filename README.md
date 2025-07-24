@@ -88,6 +88,24 @@ blob_path = gs.path_to(hash_str)
 metadata_path = gs.path_to(hash_str, 'json')
 ```
 
+### Copying and Moving Files
+
+```python
+# Copy an external file into the store
+# Returns (hash_string, file_path) - original file remains unchanged
+hash_str, store_path = gs.copy_file('/path/to/source/file.pdf')
+
+# Move an external file into the store
+# Returns (hash_string, file_path) - original file is deleted
+hash_str, store_path = gs.move_file('/path/to/source/file.pdf')
+
+# Both methods:
+# - Calculate the file's SHA-256 hash efficiently
+# - Create the appropriate directory structure
+# - Handle duplicates (won't overwrite existing files)
+# - Support both string and Path objects as input
+```
+
 ### Iteration and Validation
 
 ```python
